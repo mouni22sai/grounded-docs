@@ -54,9 +54,34 @@ appear in more than one document also tests metadata filtering by insurer and pr
 - **Encrypted PDFs.** `tesco-motor-2026`, `axa-motor-2023`, both Aviva motor files and both FCA
   files are AES-encrypted with an empty user password (they open normally in a viewer). pypdf
   needs the `cryptography` package to read them. Docling's default backend handles them.
-- **Two-page spreads.** `postoffice-travel-2026` has two printed pages per PDF page. Citations
-  will use the PDF page index, not the printed page number.
-- **Image-only scan.** `bajaj-motor-scanned-2013` has no text layer and needs OCR.
+- **Two-page spreads.** `postoffice-travel-2026` has two printed pages per PDF page: page 1 is a
+  portrait cover, pages 2-33 are 839 pt wide landscape spreads. Each printed page is itself two
+  text columns, so Docling items arrive in four columns (left edges near x = 21, 215, 440 and
+  634 pt) walked top to bottom, left to right. Checked on PDF page 3 (docling 2.135.0, heron):
+  reading order is correct, the left printed page is complete before the right one starts, and
+  sections flow across the printed-page boundary. Printed page numbers are `page_footer` items in
+  the furniture layer; PDF page 3 carries printed pages 4 and 5, so PDF page = printed page // 2
+  + 1. Citations use the PDF page index, never the printed number; use the mapping when writing
+  golden-set questions from the booklet. 50 tables detected across 33 pages. Open check: the
+  single-trip refund scale on page 3 came out as two `section_header` items ("1. Single-trip
+  Policies Before Travel", "75% refund") while the annual multi-trip scale beside it was a table.
+- **Image-only scan.** `bajaj-motor-scanned-2013` has no text layer and needs OCR (`do_ocr=True`,
+  the only document that does). Checked with RapidOCR defaults: SUCCESS, 7 pages, 4 tables,
+  668 s wall time at 10 threads, about 95 s per page against 4-10 s for text-layer pages. The OCR
+  text is usable but noisy: doubled letters in the header ("Bajaj j Allianz"), dropped spaces
+  ("SECTIONI-LOSS", "bylandslide"), c/d swaps ("vehidle"), and stray characters outside Latin-1
+  (U+0146 on page 2) that crash a cp1252 console. The parts-depreciation table on page 1 came out
+  as fragmented text; the numbered perils list on page 1 was labelled `document_index` (a
+  TableItem subtype the chunker must keep, not drop). The IDV depreciation schedule on page 2 came
+  out as clean dotted-leader text lines and is the best golden-set target in this document. Page 7
+  is blank; the run reported SUCCESS and 7 pages, its item output has not been seen.
+- **Missed tables on one page.** Docling's default layout model (heron, docling 2.135.0) detects
+  1 of the 6 tables on page 4 of `aviva-motor-limits-2026` (the optional covers: protected no claim
+  discount, courtesy car and van, foreign use). The other five come out as fragmented text with
+  columns interleaved. Pages 1-3 and 5 are correct (20 of 20 tables). A larger layout model and a
+  lower detection threshold were both tried and both broke page 5, so the defect is accepted.
+  Golden-set questions should not target the page 4 optional covers of this sheet; the Aviva policy
+  booklet covers the same options. See DECISIONS.md, 2026-10-09.
 - **Unstable URL.** The Tesco CDN URL contains GUIDs and may change; the stable entry point is
   the Tesco car insurance page.
 - **Excess amounts.** UK motor booklets do not print the customer's own compulsory or voluntary
