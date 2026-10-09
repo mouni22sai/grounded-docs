@@ -62,9 +62,13 @@ appear in more than one document also tests metadata filtering by insurer and pr
   sections flow across the printed-page boundary. Printed page numbers are `page_footer` items in
   the furniture layer; PDF page 3 carries printed pages 4 and 5, so PDF page = printed page // 2
   + 1. Citations use the PDF page index, never the printed number; use the mapping when writing
-  golden-set questions from the booklet. 50 tables detected across 33 pages. Open check: the
-  single-trip refund scale on page 3 came out as two `section_header` items ("1. Single-trip
-  Policies Before Travel", "75% refund") while the annual multi-trip scale beside it was a table.
+  golden-set questions from the booklet. 50 tables detected across 33 pages. Label noise seen on
+  page 3 (checked against the PDF): the refund-scale block is a bold numbered heading, two plain
+  text lines and a second numbered heading followed by a table; heron labelled the text line
+  "75% refund" as `section_header` and the heading "2. Annual Multi-trip Policies" as `list_item`
+  (the red numbering read as a list marker). No table was missed. Heading labels are hints, not
+  structure: the chunker should keep the section path short and expect numbered headings to
+  arrive as list items.
 - **Image-only scan.** `bajaj-motor-scanned-2013` has no text layer and needs OCR (`do_ocr=True`,
   the only document that does). Checked with RapidOCR defaults: SUCCESS, 7 pages, 4 tables,
   668 s wall time at 10 threads, about 95 s per page against 4-10 s for text-layer pages. The OCR

@@ -114,89 +114,76 @@ Step names are descriptive, never letters or bare numbers (user preference). Com
 bare commands with no prompt prefix: the user pastes whole lines into cmd. Use forward slashes in
 paths inside documentation; backslashes get mangled by tooling.
 
-#### Aviva spike: FINISHED. Conclusions (all recorded in DECISIONS.md and data/CORPUS.md)
+#### Docling spike: FINISHED and committed (0a4ef7d)
 
-- Parse check: SUCCESS, 5 pages. Empty-password encryption needs nothing special.
-- OCR off by default (`PdfPipelineOptions.do_ocr = False`): default OCR mode fires on layout
-  regions overlapping vector shapes (table borders), 555 of 577 s on a file with zero images.
-  Only `bajaj-motor-scanned-2013` gets OCR on.
-- Threads = physical cores (10 here) via `DOCLING_NUM_THREADS`, later `AcceleratorOptions` in the
-  CLI. Heron pipeline about 21 s for 5 pages at 10 threads; wall time about 35 s incl. model load.
-- Layout model stays `layout_heron_default`. Known miss: page 4 of the Aviva sheet, 1 of 6 tables
-  detected, the rest fragmented text (21 found, 26 correct). Tried and REJECTED: egret large
-  (fixed p4, merged p5 into 3 tables with no headings, 218 s) and table confidence cut 0.3 via
-  `LayoutPostprocessor.CONFIDENCE_THRESHOLDS` (p4 unchanged, p5 lost 4 of 5 tables, 186 s).
-  Accepted because both fixes broke page 5 (the windscreen excess citation page) and the page 4
-  facts remain as text and in the Aviva policy booklet. Quirk noted in CORPUS.md; golden set
-  avoids p4 optional covers. Untried presets if the pattern recurs: layout_heron_101,
-  layout_egret_medium, layout_egret_xlarge. The user questioned this decision and accepted it with
-  the condition: revisit if Post Office or Bajaj show the same heading-with-table miss pattern.
-- TableFormer stays ACCURATE.
-- What the chunker can rely on (from the item walk, cross-checked against the PDF by the user):
-  `prov[0].page_no` is the 1-based PDF page index on every item; items arrive in reading order;
-  all `section_header` items have `level == 1`; tables are NOT nested under headings (assign by
-  most recent heading in order); sub-headings are NOT nested under parents (parent rule: heading
-  immediately followed by heading, misses "Breakdown cover options"); bullets are depth 2 inside
-  a list group; `picture` items are icons to drop. Windscreen excess (£115 / £10) appears as
-  bullets under "Glass" on p1 and as one-row tables on p5; gold pages should list both.
-- API note for docling 2.135.0: select layout model with
-  `LayoutObjectDetectionOptions.from_preset(name)`; the old `DOCLING_LAYOUT_*` constants raise
-  AttributeError.
+All three checks done (Aviva limits sheet, Post Office page 3, Bajaj with OCR). The decisions and
+their evidence live in DECISIONS.md (six dated entries, 2026-10-08 and 2026-10-09) and the
+per-file quirks in data/CORPUS.md; do not re-derive them. What was decided:
 
-#### Post Office page check: DONE 2026-10-09 (recorded in data/CORPUS.md)
+- OCR off by default; on only for `bajaj-motor-scanned-2013` (about 95 s per page, 668 s total).
+- Threads = physical cores (10 here); one `DocumentConverter` per process.
+- Layout model `layout_heron_default`, TableFormer ACCURATE. Known accepted miss: Aviva limits
+  sheet page 4, 1 of 6 tables. Egret large and a lower table threshold both broke page 5 and were
+  rejected. Post Office and Bajaj did not reproduce the pattern, so the decision stands.
+- Full corpus pass estimate 45-90 min plus 11 min OCR (566 PDF pages). TableFormer FAST is
+  deferred until the ingestion CLI measures a real pass.
+- The ingestion CLI never prints document text (OCR emits non-cp1252 characters): ids, counts
+  and timings only.
 
-Script clean-up done by Claude at the user's request: `scripts/spike_docling.py` takes
-`<pdf> [page] [--ocr]`, walks BODY plus FURNITURE layers (page_header / page_footer show; the
-chunker walks BODY only) and prints `p<page> x=<left edge in pt> <label> <text[:70]>`. Stdout
-replaces unencodable characters (cp1252 console; OCR emitted U+0146). Timing stays outside the
-script: `powershell -NoProfile -Command "Measure-Command { uv run python scripts/spike_docling.py <pdf> [page] [--ocr] | Out-Host } | Select-Object TotalSeconds"`
-in a cmd window after `set DOCLING_NUM_THREADS=10`.
+What the chunker can rely on (cross-checked against the PDFs by the user):
 
-Run: 338.5 s wall for 33 pages, 50 tables. Page 3: four columns at x=21, 215, 440, 634 walked
-down then across, left printed page complete before the right one, so item order is trustworthy
-on spreads. Sections flow across the printed-page boundary (Fraud) and therefore across PDF
-pages too, so the "most recent heading in order" rule must carry a heading over a page break.
-Footers "4" and "5" are furniture: PDF page = printed // 2 + 1. OPEN (user to confirm in the
-viewer): is the single-trip refund scale on page 3 a one-row table that heron emitted as two
-headings ("1. Single-trip Policies Before Travel", "75% refund")? If so it is a mild Aviva p4
-recurrence, and it means the heading-parent rule will see junk headings, so the chunker's section
-path should stay short (nearest one or two headings).
+- `prov[0].page_no` is the 1-based PDF page index on every item. Items arrive in reading order,
+  including on the Post Office two-page spreads (four text columns, left printed page complete
+  before the right). Printed page numbers are `page_footer` items in the FURNITURE layer; the
+  chunker walks BODY only. For Post Office, PDF page = printed page // 2 + 1.
+- Sections flow across page boundaries, so "assign each item to the most recent `section_header`
+  in order" must carry the heading over a page break.
+- All `section_header` items have `level == 1`; tables are NOT nested under headings;
+  sub-headings are NOT nested under parents. The parent heuristic (heading immediately followed
+  by heading) misses some parents and will see junk: heron labelled the plain line "75% refund"
+  as a heading and a numbered heading as a `list_item`. Treat heading labels as hints and keep
+  the section path short (nearest one or two headings).
+- Bullets are depth 2 inside a list group. `picture` items are icons to drop. `document_index`
+  is a TableItem subtype and is kept as a table. A page can have no items (Bajaj page 7).
+- Windscreen excess (£115 / £10) appears as bullets under "Glass" on Aviva limits p1 and as
+  one-row tables on p5; gold pages should list both.
+- `scripts/spike_docling.py` (throwaway) takes `<pdf> [page] [--ocr]` and prints
+  `p<page> x=<left edge pt> <label> <text[:70]>` for every BODY and FURNITURE item. Time it from
+  outside, after `set DOCLING_NUM_THREADS=10` in the cmd window:
+  `powershell -NoProfile -Command "Measure-Command { uv run python scripts/spike_docling.py <pdf> [page] [--ocr] | Out-Host } | Select-Object TotalSeconds"`
 
-#### Bajaj OCR check: DONE 2026-10-09 (recorded in data/CORPUS.md and DECISIONS.md)
+#### Next step (resume here): chunker with tests
 
-668.3 s wall for 7 pages with `--ocr`, SUCCESS, 4 tables, about 95 s per page. OCR text usable
-but noisy (doubled letters, dropped spaces, "vehidle"). Parts-depreciation table on p1 came out
-fragmented; perils list labelled `document_index` (TableItem subtype, chunker keeps it); IDV
-schedule on p2 is clean text and the best golden-set target. The walk crashed at p2 with
-UnicodeEncodeError (cp1252), fixed in the script; p3-p7 items not seen. Page 7 (blank) raised no
-error. Not re-run: 11 minutes for a nice-to-know, and ingestion must handle pages with no items
-regardless. Corpus pass estimate from these two runs: 45-90 min plus 11 min OCR (566 PDF pages).
+Uncommitted: CLAUDE.md and data/CORPUS.md (refund-scale resolution and this log, written after
+0a4ef7d). Fold them into the first chunker commit.
 
-#### Next step (resume here): commit, then start the chunker
+Opening step, agreed but not started: define the chunker's contract before any code. Input is a
+flat list of block records (page, label, text, heading flag), which is exactly what the spike walk
+prints, not a DoclingDocument; a thin adapter converts Docling items to blocks later. Output is a
+list of chunks (document id, page, section path, text). That keeps the chunker a pure function
+testable with ten-line fixtures, no Docling import, no PDFs. Order of work:
 
-One commit of: CLAUDE.md, DECISIONS.md, data/CORPUS.md, .gitignore (Office lock files),
-pyproject.toml, uv.lock, scripts/spike_docling.py. `docs/learnings.pptx` is the user's own notes
-deck; the user decides whether it is committed. Then tick the Docling spike box.
+1. Explain the general chunking pattern first (fixed windows, structure-aware splitting,
+   contextual headers), then map it to FR-2.
+2. First test: one fixture, one chunk, contextual header prepended. Create `tests/` and the
+   `chunker` module; the user writes both.
+3. FR-2 rules one test at a time: 300-800 token window, never split a table row or a numbered
+   clause mid-sentence, modest overlap, drop furniture and pictures, keep `document_index` as a
+   table, carry the heading across pages.
+4. Tokenizer choice is the first dependency to add (`uv add`); record it in DECISIONS.md.
 
-Chunker opening step (roadmap agreed 2026-10-09, not started): the chunker takes a flat list of
-block records (page, label, text, heading flag), not a DoclingDocument, so tests use hand-written
-fixtures with no Docling import and no PDFs; a thin adapter converts Docling items to blocks.
-First test: one fixture, one chunk, contextual header prepended. Then the FR-2 rules one test at a
-time (300-800 token window, never split a table row or numbered clause, overlap, drop furniture
-and pictures, keep `document_index` as a table). Tokenizer choice is the first dependency to add.
+Then Postgres schema, then ingestion CLI wiring (agreed build order).
 
 Environment notes: `DOCLING_NUM_THREADS` is per cmd window. `HF_HUB_DISABLE_SYMLINKS_WARNING=1`
 as a user environment variable silences the Hugging Face warnings. Heron and egret-large weights
-are downloaded; RapidOCR models are downloaded.
+are downloaded; RapidOCR models are downloaded. The Windows console is cp1252, so printing OCR
+output can crash; the spike script sets `sys.stdout.reconfigure(errors="replace")`.
 
-Concepts explained this session (do not re-explain unless asked): DoclingDocument and items;
+Concepts explained so far (do not re-explain unless asked): DoclingDocument and items;
 `iterate_items` and depth vs heading level; what a spike is; the chunker; the ingestion CLI; the
 seven-stage ingest pipeline; the two-stage detection threshold inside Docling's layout stage;
 why the page 4 miss was accepted; BODY vs FURNITURE content layers; reading x to detect column
 interleaving; why the Windows console (cp1252) crashes on OCR output.
 
-Agreed build order after the spike: chunker with tests first (offline, pure), then Postgres
-schema, then ingestion CLI wiring.
-
-Week 3 checklist: [x] corpus chosen and stored  [~] Docling spike (all three checks done; commit
-pending)  [ ] chunker with tests  [ ] Postgres schema  [ ] ingestion CLI
+Week 3 checklist: [x] corpus chosen and stored  [x] Docling spike  [ ] chunker with tests
+[ ] Postgres schema  [ ] ingestion CLI
