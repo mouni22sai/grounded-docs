@@ -152,3 +152,43 @@ Citation quotes are verified against the stored OCR text, so they stay consisten
 questions on this document should target its cleanest passages (the IDV depreciation schedule on
 page 2) rather than its tables. Docling labelled one region `document_index`; the chunker treats
 that label as a table, not as furniture.
+
+### 2026-10-10: Chunk sizes are counted with tiktoken `cl100k_base` as a proxy tokenizer
+
+**Context.** FR-2 states the chunk size target in tokens, 300 to 800, and chunker slice 2 enforces
+the upper bound. A token count only has meaning relative to a tokenizer, and the tokenizer that
+matters is the one the embedding model was trained with, because it defines the window a chunk
+must fit. The embedding model is not yet pinned (Embeddings row in the PRD table above), so its
+tokenizer cannot be used. Something has to count tokens now.
+
+**Decision.** Add `tiktoken` as a runtime dependency and count with its `cl100k_base` encoding,
+the vocabulary used by OpenAI's GPT-4 generation and the text-embedding-3 models. The encoding is
+loaded once into a module-level constant in `grounded_docs.ingest.chunker` and exposed through one
+public function, `count_tokens(text) -> int`. Document text is untrusted, so the call passes
+`disallowed_special=()`: a document that happens to contain a special-token string such as
+`<|endoftext|>` is counted as ordinary text instead of raising. The piece size that is compared
+against the limit is the count of the whole embedded string, contextual header included.
+
+**Alternatives considered.**
+
+- Hugging Face `tokenizers` with the eventual embedding model's own vocabulary. Exact, but the
+  model is not chosen, so there is no vocabulary to load yet. This is the likely swap target if the
+  pinned model is not an OpenAI one.
+- Characters divided by four. No dependency and no download, but the ratio drifts with Markdown
+  tables, numbers and OCR noise, all common in this corpus, and the error has no bound. Rejected
+  because a real tokenizer costs one small dependency and gives a count that is exact for one
+  plausible pinned model and within 10 to 20 percent for the others.
+
+**Swap path.** One constant, `_ENCODING` in `chunker.py`, names the encoding. If the pinned model
+is an OpenAI embedding model, nothing changes. If tiktoken ships the pinned model's encoding under
+another name, change the string. Otherwise replace the constant and the body of `count_tokens` with
+the `tokenizers` equivalent; the rest of the chunker only ever calls `count_tokens`.
+
+**Consequences.** The first call to `tiktoken.get_encoding` downloads a vocabulary file of about
+2 MB and caches it under the temp directory, so the first test run on a fresh machine or CI runner
+needs network access, or `TIKTOKEN_CACHE_DIR` pointed at a pre-populated folder. The chunker counts
+the full candidate piece text every time it considers adding a block, which is quadratic in blocks
+per section; acceptable at this corpus size and simple to replace with incremental counting if the
+ingestion CLI shows it matters. The 300-token lower bound is deliberately not enforced yet: the
+ingestion CLI will report the real chunk-size distribution over the corpus first, and whether to
+merge small sections will be decided on that evidence and recorded here.

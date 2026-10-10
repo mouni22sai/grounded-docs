@@ -23,11 +23,14 @@ first runtime dependency after Docling and records that choice in DECISIONS.md.
 
 Language models do not read characters or words. They read tokens, pieces of text from a fixed
 vocabulary, typically a short word or part of a longer one. In English one token is about three
-quarters of a word. Each model family has its own tokenizer, so the same sentence has a different
-count under each. We have not yet pinned the embedding model (DECISIONS.md, Embeddings row), so we
-cannot use its exact tokenizer. We pick one well-known tokenizer as a proxy, the `cl100k_base`
-encoding from the `tiktoken` library, and swap it later if the pinned model needs a different one.
-A 10 to 20 percent difference between tokenizers does not matter for a target window.
+quarters of a word. Counting is done by the tokenizer, not the model, and each model is tied to the
+one tokenizer it was trained with. Two models that share a tokenizer see the same sentence as the
+same number of tokens. Under a different tokenizer, even one from the same vendor, the same
+sentence can come out as a different number of tokens. We have not yet pinned the embedding model
+(DECISIONS.md, Embeddings row), so we cannot use its exact tokenizer. We pick one well-known
+tokenizer as a proxy, the `cl100k_base` encoding from the `tiktoken` library, and swap it later if
+the pinned model needs a different one. A 10 to 20 percent difference between tokenizers does not
+matter for a target window.
 
 ## Contract
 
