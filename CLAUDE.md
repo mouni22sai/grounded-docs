@@ -108,7 +108,7 @@ This project is being built as a learning exercise. Claude coaches one small ste
 explaining the why; the user writes and runs the code. Do not write application code into the
 repo unless explicitly asked. Update this section at the end of each session.
 
-### Status as of 2026-10-09, end of session (Week 3 of the PRD build plan)
+### Status as of 2026-10-10, end of session (Week 3 of the PRD build plan)
 
 Step names are descriptive, never letters or bare numbers (user preference). Command blocks are
 bare commands with no prompt prefix: the user pastes whole lines into cmd. Use forward slashes in
@@ -145,34 +145,69 @@ What the chunker can rely on (cross-checked against the PDFs by the user):
   the section path short (nearest one or two headings).
 - Bullets are depth 2 inside a list group. `picture` items are icons to drop. `document_index`
   is a TableItem subtype and is kept as a table. A page can have no items (Bajaj page 7).
-- Windscreen excess (£115 / £10) appears as bullets under "Glass" on Aviva limits p1 and as
-  one-row tables on p5; gold pages should list both.
+- Windscreen excess (£115 / £10) appears as bullets under the heading "Glass in your vehicle's
+  windscreen, windows or sunroof" on Aviva limits p1 (under the parent heading "What's Covered")
+  and as one-row tables on p5; gold pages should list both.
 - `scripts/spike_docling.py` (throwaway) takes `<pdf> [page] [--ocr]` and prints
   `p<page> x=<left edge pt> <label> <text[:70]>` for every BODY and FURNITURE item. Time it from
   outside, after `set DOCLING_NUM_THREADS=10` in the cmd window:
   `powershell -NoProfile -Command "Measure-Command { uv run python scripts/spike_docling.py <pdf> [page] [--ocr] | Out-Host } | Select-Object TotalSeconds"`
 
-#### Next step (resume here): chunker with tests
+#### Chunker: IN PROGRESS (started 2026-10-10, nothing committed yet)
 
-Uncommitted: CLAUDE.md and data/CORPUS.md (refund-scale resolution and this log, written after
-0a4ef7d). Fold them into the first chunker commit.
+Working style changed this session: the user asked for each step as a written user story (story,
+why, input/output contract, numbered acceptance criteria that map one-to-one to tests, out of
+scope, definition of done), then writes code and tests alone and brings the diff back for review.
+Stories live in `docs/stories/`. Claude reviews against the criteria; still no application code
+from Claude.
 
-Opening step, agreed but not started: define the chunker's contract before any code. Input is a
-flat list of block records (page, label, text, heading flag), which is exactly what the spike walk
-prints, not a DoclingDocument; a thin adapter converts Docling items to blocks later. Output is a
-list of chunks (document id, page, section path, text). That keeps the chunker a pure function
-testable with ten-line fixtures, no Docling import, no PDFs. Order of work:
+Done so far (all untracked, not committed):
+- `src/grounded_docs/ingest/__init__.py` (empty) and `src/grounded_docs/ingest/chunker.py` holding
+  `Block`, a frozen slotted dataclass with fields `page, label, text, is_heading` in that order.
+  Import check passed; ruff clean.
+- `tests/test_chunker.py` with the first test (one section gives one chunk with header). It is
+  RED: `chunk_blocks` does not exist yet. The test passes Block args positionally, which is fine.
+  Fixture text is invented on purpose: chunker unit fixtures need not match the PDFs; golden-set
+  questions must.
 
-1. Explain the general chunking pattern first (fixed windows, structure-aware splitting,
-   contextual headers), then map it to FR-2.
-2. First test: one fixture, one chunk, contextual header prepended. Create `tests/` and the
-   `chunker` module; the user writes both.
-3. FR-2 rules one test at a time: 300-800 token window, never split a table row or a numbered
-   clause mid-sentence, modest overlap, drop furniture and pictures, keep `document_index` as a
-   table, carry the heading across pages.
-4. Tokenizer choice is the first dependency to add (`uv add`); record it in DECISIONS.md.
+Contract decided: `chunk_blocks(blocks: list[Block], title: str) -> list[Chunk]`. Header line is
+`<title> > <nearest heading>` (bare title if no heading seen yet), then a blank line, then body
+block texts joined by `\n`, no trailing newline; heading text never appears in the body. `Chunk`
+is a frozen slotted dataclass with `text, page_start, page_end` (pages from the body blocks). One
+public function; helpers start with an underscore. The chunker is called by the ingestion CLI, one
+document at a time, with all blocks of that document in one call (sections cross page
+boundaries; overlap needs the previous chunk).
 
-Then Postgres schema, then ingestion CLI wiring (agreed build order).
+#### Next step (resume here): finish slice 1 acceptance, then slice 2
+
+Slice 1 was reviewed on 2026-10-10: `chunk_blocks` with helpers `_build_header` and
+`_close_section`, `Chunk(text, page_start, page_end)`, six tests, 6 passed, ruff check clean.
+Two fixes were requested before acceptance: run `uv run ruff format .` (both files fail the
+format check: trailing whitespace, trailing commas, blank lines between functions) and strengthen
+`test_heading_with_no_body_produces_no_chunk` to the story's case (heading A, heading B, text:
+one chunk with header `Document Title > B`; the current test only checks a lone heading). When
+both are done: rerun the three checks, set Story 01's status line to accepted, make the first
+chunker commit (CLAUDE.md, docs/stories/, src/grounded_docs/ingest/, tests/; NOT
+docs/learnings.pptx or docs/CBE70A82.tmp), and tick the Trello checklists.
+
+Story 02 is issued: `docs/stories/02-chunker-slice-2-token-limit.md`. tiktoken `cl100k_base` is
+the token-count proxy until the embedding model is pinned; public `count_tokens`;
+`chunk_blocks(..., max_tokens=800)`; greedy packing of body blocks into pieces with the header
+counted; an oversize single block is kept whole; five criteria, four new tests, 10 passed;
+DECISIONS.md entry written by the user. The 300-token lower bound is deferred until the ingestion
+CLI reports the real chunk-size distribution.
+
+Stories are mirrored as Trello cards (board "grounded-docs q&a", column Today; credentials in
+`.env` as TRELLO_API_KEY and TRELLO_TOKEN, never printed). Trello does not render Markdown
+tables, so stories use lists, not tables.
+
+Stories queued after slice 2, one per FR-2 rule, each as its own file in `docs/stories/`: split
+inside a block at table-row, numbered-clause or sentence boundaries, never mid-row or mid-clause;
+modest overlap; drop `picture`, `page_header`, `page_footer`; keep `document_index` as a table;
+two-level section path (a heading immediately followed by a heading becomes the parent, e.g.
+`What's Covered > Glass in your vehicle's windscreen, windows or sunroof`); a test that a heading
+carries across a page break; small-section merging decided on corpus evidence. Then the
+Docling-to-Block adapter, Postgres schema, ingestion CLI (agreed build order).
 
 Environment notes: `DOCLING_NUM_THREADS` is per cmd window. `HF_HUB_DISABLE_SYMLINKS_WARNING=1`
 as a user environment variable silences the Hugging Face warnings. Heron and egret-large weights
@@ -183,7 +218,18 @@ Concepts explained so far (do not re-explain unless asked): DoclingDocument and 
 `iterate_items` and depth vs heading level; what a spike is; the chunker; the ingestion CLI; the
 seven-stage ingest pipeline; the two-stage detection threshold inside Docling's layout stage;
 why the page 4 miss was accepted; BODY vs FURNITURE content layers; reading x to detect column
-interleaving; why the Windows console (cp1252) crashes on OCR output.
+interleaving; why the Windows console (cp1252) crashes on OCR output. Added 2026-10-10: module
+vs import package vs distribution package; subpackages need `__init__.py`; src vs flat vs
+single-module vs workspace layouts; the import path (`sys.path`) and editable installs;
+dataclass, decorator, type hints, frozen and slots; pytest discovery (`tests/test_*.py`,
+`test_` functions, assert) and red-green; what a Block is (a Docling item cut down to four facts,
+`is_heading` decided by the adapter so heading detection lives in one place); the ingest pipeline
+as seven stages (discover, fingerprint, parse, adapt, chunk, embed, store) and who calls the
+chunker; structure-aware chunking with contextual headers and why; the list of alternative
+chunking strategies (fixed-size, sentence, recursive, page, semantic, parent-child, sliding
+window, proposition/agentic, contextual retrieval, late chunking); why a body-less heading
+gives no chunk (nothing to cite, retrieval noise, the parent-heading story carries its text); the
+three Chunk fields and why a chunk needs two page numbers; what a token is (Story 02 text).
 
-Week 3 checklist: [x] corpus chosen and stored  [x] Docling spike  [ ] chunker with tests
+Week 3 checklist: [x] corpus chosen and stored  [x] Docling spike  [~] chunker with tests (slice 1 in review, slice 2 issued)
 [ ] Postgres schema  [ ] ingestion CLI
