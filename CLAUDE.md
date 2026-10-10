@@ -153,60 +153,63 @@ What the chunker can rely on (cross-checked against the PDFs by the user):
   outside, after `set DOCLING_NUM_THREADS=10` in the cmd window:
   `powershell -NoProfile -Command "Measure-Command { uv run python scripts/spike_docling.py <pdf> [page] [--ocr] | Out-Host } | Select-Object TotalSeconds"`
 
-#### Chunker: IN PROGRESS (started 2026-10-10, nothing committed yet)
+#### Chunker: IN PROGRESS (slices 1 and 2 committed, Story 03 issued)
 
-Working style changed this session: the user asked for each step as a written user story (story,
-why, input/output contract, numbered acceptance criteria that map one-to-one to tests, out of
-scope, definition of done), then writes code and tests alone and brings the diff back for review.
-Stories live in `docs/stories/`. Claude reviews against the criteria; still no application code
-from Claude.
+Working style: each step is a written user story (story, why, input/output contract, numbered
+acceptance criteria that map one-to-one to tests, out of scope, definition of done, hints) in
+`docs/stories/`, mirrored as a Trello card. The user writes code and tests and brings the diff
+back; Claude reviews against the criteria, then commits and ticks the card. Exception this
+session: the user explicitly asked Claude to write `chunker.py` for slice 2, the DECISIONS.md
+entry and the slice 2 test fixes. The default stays: no application code from Claude unless asked.
 
-Done so far (all untracked, not committed):
-- `src/grounded_docs/ingest/__init__.py` (empty) and `src/grounded_docs/ingest/chunker.py` holding
-  `Block`, a frozen slotted dataclass with fields `page, label, text, is_heading` in that order.
-  Import check passed; ruff clean.
-- `tests/test_chunker.py` with the first test (one section gives one chunk with header). It is
-  RED: `chunk_blocks` does not exist yet. The test passes Block args positionally, which is fine.
-  Fixture text is invented on purpose: chunker unit fixtures need not match the PDFs; golden-set
-  questions must.
+Committed:
+- Slice 1 (fa6d69f): `Block(page, label, text, is_heading)`, `Chunk(text, page_start, page_end)`,
+  `chunk_blocks` grouping blocks by section with a contextual header; six tests.
+- Slice 2 (a676fb6): tiktoken `cl100k_base` proxy loaded once into `_ENCODING`; public
+  `count_tokens(text)` passing `disallowed_special=()` so special-token strings in document text
+  never raise; `chunk_blocks(blocks, title, max_tokens=800)`; `_close_section` returns
+  `list[Chunk]` and packs body blocks greedily with the header counted, via helpers `_piece_text`
+  and `_make_chunk`; an oversize single block stays whole; ten tests; DECISIONS.md entry dated
+  2026-10-10 (proxy choice, alternatives, swap path). Story 02 card ticked and in Done.
 
-Contract decided: `chunk_blocks(blocks: list[Block], title: str) -> list[Chunk]`. Header line is
-`<title> > <nearest heading>` (bare title if no heading seen yet), then a blank line, then body
-block texts joined by `\n`, no trailing newline; heading text never appears in the body. `Chunk`
-is a frozen slotted dataclass with `text, page_start, page_end` (pages from the body blocks). One
-public function; helpers start with an underscore. The chunker is called by the ingestion CLI, one
-document at a time, with all blocks of that document in one call (sections cross page
-boundaries; overlap needs the previous chunk).
+Contract as it stands: header `<title> > <nearest heading>` (bare title before any heading), blank
+line, body block texts joined by `\n`, no trailing newline; heading text never in the body; two
+public functions, helpers underscored; the ingestion CLI calls the chunker once per document with
+all its blocks (sections cross page boundaries; overlap needs the previous chunk). The 300-token
+lower bound is deferred until the ingestion CLI reports the real chunk-size distribution.
 
-#### Next step (resume here): review the user's Story 02 against its story
+Review lessons from slice 2, apply to future reviews: a test can pass through the wrong rule (a
+limit below one block exercised the oversize path, not packing), so check which rule a fixture
+really hits; derive `max_tokens` from `count_tokens` of the expected first piece, never a guessed
+number; watch for copy-paste index errors (`chunks[0]` repeated where `chunks[1]` was meant);
+`isinstance` over `type(...) ==`; run `uv run ruff format .` as the very last step.
 
-Slice 1 is ACCEPTED and committed (fa6d69f, 2026-10-10): `Block`, `Chunk(text, page_start,
-page_end)`, `chunk_blocks` with helpers `_build_header` and `_close_section`, six tests. Its
-Trello card is fully ticked and sits in the Done column. Lesson given to the user: run
-`uv run ruff format .` as the last step before handing over, because edits made after formatting
-fail the check again.
+#### Next step (resume here): Story 03, splitting inside an oversize block
 
-The user now implements Story 02. On resume: ask whether it is ready. If yes, run `uv run pytest`
-(expect 10 passed), `uv run ruff check .`, `uv run ruff format --check .`, read the diff and the
-new DECISIONS.md entry, report mistakes against the five criteria, then make the second chunker
-commit and tick the card. If not ready, coach from wherever they are stuck.
+Story 03 is issued: `docs/stories/03-chunker-slice-3-split-inside-block.md`, Trello card in Today.
+Table blocks (`table`, `document_index`) split between rows with the two head lines repeated on
+every piece; text blocks split at sentence ends with `re.split(r"(?<=[.!?])\s+", ...)`; a single
+oversize row or sentence is kept whole; split pieces are never merged with neighbouring blocks;
+`page_start` and `page_end` both equal the block page; no new dependency; six criteria, five new
+tests, 15 passed; DECISIONS.md entry (regex over NLTK punkt, spaCy, pysbd; false boundaries at
+abbreviations accepted). On resume: ask whether it is ready. If yes, run `uv run pytest` (expect
+15 passed), `uv run ruff check .`, `uv run ruff format --check .`, read the diff and the DECISIONS
+entry, review against the six criteria, commit as the third chunker commit, tick the card and move
+it to Done. If not ready, coach from wherever they are stuck.
 
-Story 02 is issued: `docs/stories/02-chunker-slice-2-token-limit.md`. tiktoken `cl100k_base` is
-the token-count proxy until the embedding model is pinned; public `count_tokens`;
-`chunk_blocks(..., max_tokens=800)`; greedy packing of body blocks into pieces with the header
-counted; an oversize single block is kept whole; five criteria, four new tests, 10 passed;
-DECISIONS.md entry written by the user. The 300-token lower bound is deferred until the ingestion
-CLI reports the real chunk-size distribution.
+Also this session: `docs/tokenizer-explained.pdf` (untracked, user may commit) holds the tokenizer
+lesson: what a token is (one vocabulary row, piece plus id), vocabulary and BPE, byte fallback,
+model welded to one tokenizer, model families, tiktoken as a ruler on our side. Made from HTML via
+headless Edge; recipe in memory. Do not re-explain anything in that PDF, nor why slice 2 splits
+only between blocks and what Story 03 adds.
 
 Stories are mirrored as Trello cards (board "grounded-docs q&a"; new stories go in Today, accepted
-ones are ticked and moved to Done; credentials in
-`.env` as TRELLO_API_KEY and TRELLO_TOKEN, never printed). Trello does not render Markdown
-tables, so stories use lists, not tables.
+ones are ticked and moved to Done; credentials in `.env` as TRELLO_API_KEY and TRELLO_TOKEN, never
+printed). Trello does not render Markdown tables, so stories use lists, not tables.
 
-Stories queued after slice 2, one per FR-2 rule, each as its own file in `docs/stories/`: split
-inside a block at table-row, numbered-clause or sentence boundaries, never mid-row or mid-clause;
-modest overlap; drop `picture`, `page_header`, `page_footer`; keep `document_index` as a table;
-two-level section path (a heading immediately followed by a heading becomes the parent, e.g.
+Stories queued after slice 3, each as its own file in `docs/stories/`: modest overlap (Story 04);
+drop `picture`, `page_header`, `page_footer`; keep `document_index` as a table; two-level section
+path (a heading immediately followed by a heading becomes the parent, e.g.
 `What's Covered > Glass in your vehicle's windscreen, windows or sunroof`); a test that a heading
 carries across a page break; small-section merging decided on corpus evidence. Then the
 Docling-to-Block adapter, Postgres schema, ingestion CLI (agreed build order).
@@ -233,5 +236,5 @@ window, proposition/agentic, contextual retrieval, late chunking); why a body-le
 gives no chunk (nothing to cite, retrieval noise, the parent-heading story carries its text); the
 three Chunk fields and why a chunk needs two page numbers; what a token is (Story 02 text).
 
-Week 3 checklist: [x] corpus chosen and stored  [x] Docling spike  [~] chunker with tests (slice 1 committed fa6d69f, slice 2 in progress)
+Week 3 checklist: [x] corpus chosen and stored  [x] Docling spike  [~] chunker with tests (slices 1 and 2 committed fa6d69f and a676fb6, slice 3 issued)
 [ ] Postgres schema  [ ] ingestion CLI
