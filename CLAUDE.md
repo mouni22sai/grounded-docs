@@ -178,17 +178,18 @@ public function; helpers start with an underscore. The chunker is called by the 
 document at a time, with all blocks of that document in one call (sections cross page
 boundaries; overlap needs the previous chunk).
 
-#### Next step (resume here): finish slice 1 acceptance, then slice 2
+#### Next step (resume here): review the user's Story 02 against its story
 
-Slice 1 was reviewed on 2026-10-10: `chunk_blocks` with helpers `_build_header` and
-`_close_section`, `Chunk(text, page_start, page_end)`, six tests, 6 passed, ruff check clean.
-Two fixes were requested before acceptance: run `uv run ruff format .` (both files fail the
-format check: trailing whitespace, trailing commas, blank lines between functions) and strengthen
-`test_heading_with_no_body_produces_no_chunk` to the story's case (heading A, heading B, text:
-one chunk with header `Document Title > B`; the current test only checks a lone heading). When
-both are done: rerun the three checks, set Story 01's status line to accepted, make the first
-chunker commit (CLAUDE.md, docs/stories/, src/grounded_docs/ingest/, tests/; NOT
-docs/learnings.pptx or docs/CBE70A82.tmp), and tick the Trello checklists.
+Slice 1 is ACCEPTED and committed (fa6d69f, 2026-10-10): `Block`, `Chunk(text, page_start,
+page_end)`, `chunk_blocks` with helpers `_build_header` and `_close_section`, six tests. Its
+Trello card is fully ticked and sits in the Done column. Lesson given to the user: run
+`uv run ruff format .` as the last step before handing over, because edits made after formatting
+fail the check again.
+
+The user now implements Story 02. On resume: ask whether it is ready. If yes, run `uv run pytest`
+(expect 10 passed), `uv run ruff check .`, `uv run ruff format --check .`, read the diff and the
+new DECISIONS.md entry, report mistakes against the five criteria, then make the second chunker
+commit and tick the card. If not ready, coach from wherever they are stuck.
 
 Story 02 is issued: `docs/stories/02-chunker-slice-2-token-limit.md`. tiktoken `cl100k_base` is
 the token-count proxy until the embedding model is pinned; public `count_tokens`;
@@ -197,7 +198,8 @@ counted; an oversize single block is kept whole; five criteria, four new tests, 
 DECISIONS.md entry written by the user. The 300-token lower bound is deferred until the ingestion
 CLI reports the real chunk-size distribution.
 
-Stories are mirrored as Trello cards (board "grounded-docs q&a", column Today; credentials in
+Stories are mirrored as Trello cards (board "grounded-docs q&a"; new stories go in Today, accepted
+ones are ticked and moved to Done; credentials in
 `.env` as TRELLO_API_KEY and TRELLO_TOKEN, never printed). Trello does not render Markdown
 tables, so stories use lists, not tables.
 
@@ -231,5 +233,5 @@ window, proposition/agentic, contextual retrieval, late chunking); why a body-le
 gives no chunk (nothing to cite, retrieval noise, the parent-heading story carries its text); the
 three Chunk fields and why a chunk needs two page numbers; what a token is (Story 02 text).
 
-Week 3 checklist: [x] corpus chosen and stored  [x] Docling spike  [~] chunker with tests (slice 1 in review, slice 2 issued)
+Week 3 checklist: [x] corpus chosen and stored  [x] Docling spike  [~] chunker with tests (slice 1 committed fa6d69f, slice 2 in progress)
 [ ] Postgres schema  [ ] ingestion CLI
